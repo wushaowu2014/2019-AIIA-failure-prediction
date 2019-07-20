@@ -33,15 +33,6 @@ test.columns=['告警开始时间', '告警标题', '涉及基站eNBID或小区E
 ##训练集中有空行，去掉空行：
 train=train[~train['涉及基站eNBID或小区ECGI'].isnull()].reset_index(drop=True) ##有空行
 
-##结合标签：
-data_label=pd.concat([train_label,test_label],axis=0).reset_index(drop=True)
-
-##统一时间格式，
-data_label['故障发生时间']=data_label['故障发生时间'].apply(lambda x:time.strptime(x,"%Y/%m/%d %H:%M"))
-##按'涉及基站eNBID或小区ECGI'进行排序，ta再'故障发生时间'进行排序：
-#ascending=True，从小到大排序：
-data_label=data_label.sort_values(by=['涉及基站eNBID或小区ECGI','故障发生时间'],ascending=True).reset_index(drop=True)
-
 #统一时间格式，方便比较大小：
 train['告警开始时间']=train['告警开始时间'].apply(lambda x:time.strptime(x,"%Y/%m/%d %H:%M"))
 test['告警开始时间']=test['告警开始时间'].apply(lambda x:time.strptime(x,"%Y/%m/%d %H:%M"))
@@ -51,14 +42,18 @@ test_label['故障发生时间']=test_label['故障发生时间'].apply(lambda x
 
 ##结合标签数据：
 data_label=pd.concat([train_label,test_label],axis=0).reset_index(drop=True)
+##按'涉及基站eNBID或小区ECGI'进行排序，ta再'故障发生时间'进行排序：
+#ascending=True，从小到大排序：
+data_label=data_label.sort_values(by=['涉及基站eNBID或小区ECGI','故障发生时间'],ascending=True).reset_index(drop=True)
+
 ##结合数据集：
 data=pd.concat([train,test],axis=0).reset_index(drop=True)
 ##去重：
 data=data.drop_duplicates().reset_index(drop=True)
+
 print('the size  for data_label:',data_label.shape)
 print('the size  for data:',data.shape)
 #=========================分割线=============================================
-
 print(train.nunique())
 print(test.nunique())
 
@@ -68,7 +63,6 @@ print(test_label.nunique())
 print('*'*50+'\n标签分布：\n',train_label['故障原因定位（大类）'].value_counts())
 z=train_label.groupby(['涉及基站eNBID或小区ECGI'],as_index=False)['故障原因定位（大类）'].agg({'n':'nunique'})
 print('*'*50+'\n训练集中，基站出现不同类型故障的个数分布\n',z['n'].value_counts())
-
 
 '''
 idea:如果训练集中，基站只出现过一种类型的故障，那么它在测试集中，也只出现这种故障类型；
@@ -86,10 +80,6 @@ final_ids=list(zz[zz.n==1]['涉及基站eNBID或小区ECGI']) ## 只出现一种
 final=train_label[train_label['涉及基站eNBID或小区ECGI'].isin(final_ids)] ##这部分基站的标签
 final=final.drop_duplicates(['涉及基站eNBID或小区ECGI',\
                    '故障原因定位（大类）']).reset_index(drop=True)
-
-
-#print(test_label['故障发生时间'].min(),test_label['故障发生时间'].max())
-#print(train_label['故障发生时间'].min(),train_label['故障发生时间'].max())
 #========================================================================================================
 '''
 假设：故障发生时间 小于等于 告警开始时间（常识好像也是这样，先发生故障，然后才告警）
@@ -107,30 +97,20 @@ new_data=pd.DataFrame(new_data,columns=['告警开始时间','告警标题'])
 #new_data.to_csv('new_data.csv',index=None,encoding='utf8')
 
 data_label=pd.concat([data_label,new_data],axis=1) ##合并数据
+
+##时间转换为时间戳：
 data_label['故障发生时间_timestamp']=data_label['故障发生时间'].apply(lambda x:int(time.mktime(x)))
 data_label['告警开始时间_timestamp']=data_label['告警开始时间'].apply(lambda x:int(time.mktime(x)))
 data_label['告警开始时间_timestamp-故障发生时间_timestamp']=(data_label['告警开始时间_timestamp']-\
                                                           data_label['故障发生时间_timestamp'])/3600
 
-##对'告警标题' '涉及基站eNBID或小区ECGI' 编码：就两个特征！！
+##对'告警标题' '涉及基站eNBID或小区ECGI' 编码：就两个特征！！这里可以考虑nlp方法：
 data_label['告警标题_code']=one_hot_col(data_label['告警标题'].astype(str)).transform(\
           data_label['告警标题'].astype(str))
 data_label['涉及基站eNBID或小区ECGI_code']=one_hot_col(data_label['涉及基站eNBID或小区ECGI'].astype(str)).transform(\
           data_label['涉及基站eNBID或小区ECGI'].astype(str))
-'''
-import jieba
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-train['conment'] = train['conment'].apply(lambda x:' '.join(jieba.cut(x)))
-test['conment'] = test['conment'].apply(lambda x:' '.join(jieba.cut(x)))
-#tf-idf特征：
-column='conment'
-vec = TfidfVectorizer(ngram_range=(1,2),min_df=1, max_df=1.0,use_idf=1,smooth_idf=1, sublinear_tf=1) #这里参数可以改
-trn_term_doc = vec.fit_transform(train[column])
-test_term_doc = vec.transform(test[column])
-print(trn_term_doc.shape)
-'''
 #=============================================================================================
-def cc(i):
+def cc(i): #标签映射函数
     if i=='误告警':
         return 0
     elif i=='传输故障':
@@ -143,7 +123,6 @@ def cc(i):
         return 4
     else:
         return 5
-
 #==================================================================================================
 from sklearn.metrics import roc_auc_score,accuracy_score
 import xgboost as xgb
